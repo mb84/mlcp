@@ -1,0 +1,176 @@
+---
+title: "Machine Learning Course Project"
+author: "mb84"
+date: "06 agosto 2016"
+output: 
+  html_document: 
+    keep_md: yes
+    number_sections: yes
+    toc: yes
+---
+
+# Introduction #
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement – a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. 
+Six young health participants were asked to perform one set of 10 repetitions of the Unilateral Dumbbell Biceps Curl in five different fashions: exactly according to the specification (Class A), throwing the elbows to the front (Class B), lifting the dumbbell only halfway (Class C), lowering the dumbbell only halfway (Class D) and throwing the hips to the front (Class E).  
+
+Class A corresponds to the specified execution of the exercise, while the other 4 classes correspond to common mistakes.
+
+**Read more:** [http://groupware.les.inf.puc-rio.br/har#ixzz4GXmbqc8w](http://groupware.les.inf.puc-rio.br/har#ixzz4GXmbqc8w)
+
+**Read more:** [http://groupware.les.inf.puc-rio.br/har#ixzz4GXmXoGTE](http://groupware.les.inf.puc-rio.br/har#ixzz4GXmXoGTE)
+
+
+# Aim #
+
+The goal of this project is to predict the manner in which the Six participants did the exercise. The outcome variable is stored in the "classe" variable.
+
+# Data #
+
+Training dataset is available here:
+
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv
+
+Testing dataset is available here:
+
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv
+
+
+# Preprocessing #
+
+Before starting with prediction model building, we can perform a bit of exploration analysis on the training dataset in order to identify useless variables (variables with no variability or enriched by missing values).
+
+Looking at the data we can notice that there are empty values, NA values and DIV/0 values that must be treat as NA strings. Hence i load the files setting na.strings accordingly.  
+
+```{r, loadingdata, warning=FALSE, message= FALSE, comment=FALSE}
+
+library(caret)
+
+train.set <- read.csv("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv", header=TRUE, na.strings=c("NA", "NULL", "#DIV/0!"))
+
+test.set <- read.csv("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv", header=TRUE, na.strings=c("NA", "NULL", "#DIV/0!"))
+
+```
+
+In order to remove useless variable we can identify variables in which most of the values are NAs. To do this we can calculate the % of NAs values for each variables. Variables with high % (> 90) should be excluded.
+Moreover we can remove variables that are completely unrelated to the outcome.
+
+```{r, cleaningdata1, warning=FALSE, message= FALSE, comment=FALSE}
+
+na_count_perc <- sapply(train.set, function(y) sum(length(which(is.na(y))))/length(train.set$X) * 100)
+na_count_perc <- data.frame(na_count_perc)
+
+train.set.light <- train.set[,na_count_perc<90]
+train.set.light <- train.set.light[, !(colnames(train.set.light) %in% c("X", "raw_timestamp_part_1", "raw_timestamp_part_2", "cvtd_timestamp", "new_window", "num_window"))]
+
+# Accordingly i subset only remaining columns (variables) also in 20 samples test set.
+
+test.set.light <- test.set[,colnames(test.set) %in% colnames(train.set.light)]
+
+```
+
+I can remove also variables that have no variability at all. 
+To do this we can check and identify these variables with the nearZeroVar function in the caret package. 
+
+```{r, cleaningdata2, warning=FALSE, message= FALSE, comment=FALSE}
+
+nearZeroVar(train.set.light, saveMetrics=TRUE)
+
+```
+
+As we can see none of the variables that remain in the cleaned dataset are zero covariate variables. We can than proceed to the prediction model building process.
+
+# Prediction model building #
+
+```{r, datapartition, warning=FALSE, message= FALSE, comment=FALSE}
+
+set.seed(9876)
+
+inTrain = createDataPartition(train.set.light$classe, p = 0.7, list = FALSE)
+training = train.set.light[ inTrain,]
+testing = train.set.light[-inTrain,]
+
+```
+
+Once performed data partitioning i applied several machine learning algorithm to build model and then select the most accurate one.
+
+I tested 4 models:
+
+* Random Forest
+* Stochastic Gradient Boosting
+* CART
+* Bagged CART
+
+I applied cross validation with 8-fold resampling.
+
+```{r, modelfittings, warning=FALSE, message= FALSE, comment=FALSE}
+
+## Model fittings ##
+
+rf.fit <- train(training$classe ~ ., method="rf", trControl = trainControl(method="cv", number = 8, allowParallel = TRUE, verbose=FALSE), data=training)
+
+gbm.fit <- train(training$classe ~ ., method="gbm", trControl = trainControl(method="cv", number = 8, allowParallel = TRUE, verbose=FALSE), data=training, verbose=FALSE)
+
+cart.fit <- train(training$classe ~ ., method="rpart", trControl = trainControl(method="cv", number = 8, allowParallel = TRUE, verbose=FALSE), data=training)
+
+treebag.fit <- train(training$classe ~ ., method="treebag", trControl = trainControl(method="cv", number = 8, allowParallel = TRUE, verbose=FALSE), data=training)
+
+## Predictions ##
+
+rf.pred <- predict(rf.fit, newdata = testing)
+gbm.pred <- predict(gbm.fit, newdata = testing)
+cart.pred <- predict(cart.fit, newdata = testing)
+treebag.pred <- predict(treebag.fit, newdata = testing)
+
+```
+
+## Confusion matrices ##
+
+Below the confusion matrices for each model type:
+
+### Random Forest ###
+
+```{r, rf.confusionmatrix, warning=FALSE, message= FALSE, comment=FALSE}
+
+confusionMatrix(rf.pred, testing$classe)
+
+```
+
+### Stochastic Gradient Boosting ###
+
+```{r, gbm.confusionmatrix, warning=FALSE, message= FALSE, comment=FALSE}
+confusionMatrix(gbm.pred, testing$classe)
+
+```
+### Classification and Regression trees (CART) ###
+
+```{r, cart.confusionmatrix, warning=FALSE, message= FALSE, comment=FALSE}
+
+confusionMatrix(cart.pred, testing$classe)
+
+```
+### Bagged CART ###
+
+```{r, treebag.confusionmatrix, warning=FALSE, message= FALSE, comment=FALSE}
+
+confusionMatrix(treebag.pred, testing$classe)
+
+```
+
+# Final model evaluation #
+
+The random forest model emerges as the model with the best overall accuracy (99.42 %), however also Bagged CART is very accurate (almost 99% accuracy).  
+I tested the prediction model on the 20 samples test set.  
+Prediction is the same for both models. 
+
+```{r, test.set.prediction, warning=FALSE, message= FALSE, comment=FALSE}
+
+# Prediction with random forest
+predict(rf.fit, newdata = test.set.light)
+
+# Prediction with Bagged CART
+predict(treebag.fit, newdata = test.set.light)
+
+```
+
+
